@@ -1,5 +1,3 @@
-# portfolio
-
 # Data Analytics & Engineering Portfolio — Greg Rivera
 
  [linkedin.com/in/greg-rivera](https://linkedin.com/in/greg-rivera)
