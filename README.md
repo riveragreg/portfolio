@@ -75,4 +75,4 @@ Each project folder includes its own README with setup and run instructions spec
 
 ## Contact
 
-Feel free to reach out via [email](mailto:gregrive@gmail.com) or [LinkedIn](https://linkedin.com/in/greg-rivera) — I'm currently seeking data engineering roles.
+Feel free to reach out via [LinkedIn](https://linkedin.com/in/greg-rivera) — I'm currently seeking data engineering roles.
