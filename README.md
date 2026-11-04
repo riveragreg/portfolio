@@ -1,86 +1,64 @@
-# Home Credit Default Risk: Modeling
+# Model Card: Home Credit Default Risk Score
 
-This project builds a repayment-risk score for Home Credit loan applications. The score ranks applicants by their chance of payment difficulty (`TARGET = 1`, about 8% of applications), so that underwriters can route applications to automatic approval, automatic decline, or manual review.
-
-This README introduces the modeling notebook, `Modeling_Home_Credit.ipynb`: which models I tried, how they performed, and why I chose the final model. The data-preparation script is described in `README_Data_Prep.md`.
+This README introduces `Model_Card_Home_Credit.ipynb`, the model card for the XGBoost default-risk score built in `Modeling_Home_Credit.ipynb`. A model card is a plain-language record of what a model is, what it is for, how well it works, and where it can go wrong. This one is written for decision-makers, risk analysts, and compliance reviewers.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `Modeling_Home_Credit.ipynb` | The modeling notebook (executed, with outputs) |
-| `Data_Prep.py` | Reusable data-preparation functions that implement the EDA decisions (see `README_Data_Prep.md`) |
-| `EDA_Home_Credit.ipynb` | The exploratory analysis the preparation and modeling decisions come from |
-| `submission.csv` | Predicted default probabilities for the 48,744 test applications, in Kaggle format |
+| `Model_Card_Home_Credit.html` | **Start here.** The compiled model card: narrative, tables, and figures, with no code shown |
+| `Model_Card_Home_Credit.ipynb` | The executed notebook behind it. All code cells are collapsed or hidden; the outputs are saved in the file |
 
-## How to run
+The notebook re-uses the final trained model (`final_model.joblib`) and the prepared data from the modeling notebook, so it does not retrain from scratch. It refits the same settings once on 80% of the training data to get honest holdout predictions, and fits a second copy without protected and proxy fields for the fairness comparison. Run time is about one minute.
 
-1. Put `Modeling_Home_Credit.ipynb` and `Data_Prep.py` in one folder, and the Kaggle files `application_train.csv`, `application_test.csv`, and `sample_submission.csv` in a subfolder called `Home Credit Data`.
-2. Install the packages: `pip install pandas numpy scikit-learn scipy matplotlib joblib lightgbm xgboost imbalanced-learn`.
-3. Run all cells. On a single-CPU machine the full notebook takes about 21 minutes (model comparison about 9 minutes and the class-imbalance experiment about 7). The prepared tables are cached in `Home Credit Data/prepared`, so later runs skip the preparation step.
+## How the card is organized
 
-Inputs are the three CSV files above (307,511 training rows and 48,744 test rows). The notebook does not use the optional supplementary tables (bureau, previous applications, payment histories).
+The executive summary comes first, because most senior readers will stop there. The sections that follow match the requested outline:
 
-## What the notebook does
+1. **Model Details:** model type (XGBoost classifier), version 1.0, training data summary, key hyperparameters.
+2. **Intended Use:** who uses it, which decisions it informs, and what it is *not* designed for.
+3. **Performance Metrics:** AUC (cross-validated, holdout, and Kaggle), plus precision and recall at the chosen cutoff.
+4. **Decision Threshold Analysis:** sourced cost assumptions, the profit-maximizing cutoff, and a sensitivity analysis.
+5. **Explainability:** SHAP on a 1,000-row sample, and the top predictive features.
+6. **Adverse Action Mapping:** plain-language denial reasons for the top features, with worked examples.
+7. **Fairness Analysis:** approval rates by gender and education at the chosen cutoff.
+8. **Limitations and Risks:** known weaknesses, likely failure points, and missing data.
+9. **References.**
 
-1. **Prepare the data** with `Data_Prep.py`: 82 candidate features (69 numeric, 13 categorical), including 24 engineered features, missing-data indicators, and capped financial ratios. All thresholds are learned from the training data only and re-used on test.
-2. **Set a benchmark.** Majority-class classifier and a one-variable logistic regression.
-3. **Compare eight models** with 3-fold cross-validation on all development rows (80% of the training data). The other 20% is a holdout that is not used for any decision until the final check.
-4. **Test class-imbalance fixes** (class weights, down-sampling, up-sampling, SMOTE) against no adjustment.
-5. **Tune the best model** with randomized search (20 settings, 3-fold CV) on 5,000-row and 25,000-row subsamples, and choose the final settings on the holdout.
-6. **Report performance and run time**, show how the score would route applicants, and write the Kaggle submission.
+## Summary of the findings
 
-I use **AUC** as the main metric. Accuracy is not useful here: a model that predicts "nobody defaults" is 91.9% accurate.
+**Performance.** Ranking quality (AUC) is 0.757 in cross-validation and 0.760 on the holdout. On Kaggle it is 0.7445 (public) and 0.7451 (private). Plan with the Kaggle figure, which is about 0.014 below the holdout.
 
-## Models tried and how they performed
+**Cost assumptions and threshold.** The card uses an 8% profit on a repaid loan and a 70% loss on a defaulted loan (a 30% recovery rate). They are anchored in Home Credit B.V.'s reported 2018 net interest margin (15.8%) and cost-to-income ratio (42.2%), a Fitch recovery-rate assumption of 30% for unsecured consumer loans, a reported average recovery of about 35% on Dutch unsecured consumer loans, and an industry range of 60% to 90% for loss given default. Sources are listed in section 9. Approving a loan pays off when the predicted risk is below profit ÷ (profit + loss) = 8% ÷ 78% = **10.3%**. The predicted risks match actual default rates by decile, and a check on the holdout, using real loan amounts, puts the profit-maximizing cutoff at 10.0%.
 
-Cross-validated AUC (3 folds, 246,008 development rows; the standard deviation across folds is about 0.001):
+**At the 10.3% cutoff (holdout results):**
 
-| Model | Predictors | CV AUC | Time for 3 folds |
-|---|---|---|---|
-| Majority class | none | 0.5000 | under 1 second |
-| Logistic regression (benchmark) | `EXT_SOURCE_MEAN` only | 0.7164 | 1 second |
-| **XGBoost** | all features | **0.7568** | 47 seconds |
-| LightGBM | all features | 0.7552 | 39 seconds |
-| Logistic regression | all features | 0.7500 | 17 seconds |
-| XGBoost | all minus high-governance fields | 0.7489 | 29 seconds |
-| LightGBM | all minus high-governance fields | 0.7471 | 31 seconds |
-| Random forest | all features | 0.7454 | 379 seconds |
-| Logistic regression | all minus high-governance fields | 0.7416 | 8 seconds |
-| Logistic regression | EDA baseline set | 0.7375 | 5 seconds |
-
-- Accuracy is about 0.919 for every model, so it cannot separate them. AUC does.
-- Gradient boosting beats logistic regression by about 0.005-0.007 AUC, and the random forest is both lower and much slower.
-- A small, explainable feature set (the EDA baseline) already reaches 0.7375, mostly from the external scores.
-- The **high-governance fields** (education, family status, housing, occupation, organization, region, gender, age) add only about 0.008 AUC for each model type.
-
-**Class imbalance.** No adjustment gave the best AUC for both XGBoost (0.7568) and logistic regression (0.7500). Class weights were nearly tied (0.7562 and 0.7498); down-sampling, up-sampling, and SMOTE were lower. All of them also lowered accuracy at a 0.5 cutoff (to about 0.68-0.71) and inflated the predicted probabilities. The final model trains on the real default rate.
-
-**Tuning.** Tuning on subsamples improved the subsample cross-validation score, but the tuned settings did worse on the full-data holdout than the default settings:
-
-| XGBoost settings | Holdout AUC |
+| Measure | Value |
 |---|---|
-| Default (300 trees, learning rate 0.05, depth 4) | **0.7596** |
-| Tuned on 25,000 rows | 0.7544 |
-| Tuned on 5,000 rows | 0.7495 |
+| Applicants flagged for decline or review | 25% |
+| Approval rate | 75% |
+| Default rate among approved loans | 4.4% (vs. 8.1% for everyone) |
+| Precision / recall for predicting default | 19% / 59% |
+| Expected profit per 100,000 applications | 2,171 vs. 1,262 million currency units if everyone were approved (+1.5% of loan volume) |
+| Gain across nine cost scenarios (profit 4% to 12%, loss 50% to 90%) | -0.03% to +3.1% of loan volume |
 
-Small samples favor shallow, heavily regularized trees, which underfit when there are 246,000 rows.
+The optimal cutoff itself ranges from about 4% to 19% across those scenarios, so the cutoff should be recomputed with Home Credit's own margin and recovery data before a pilot.
 
-## Final model and why I chose it
+**Explainability.** Outside credit-score data (`EXT_SOURCE_*`) is by far the strongest driver, followed by loan size and payment, then employment and car ownership. Gender, education, and family status are also among the top 12 features.
 
-**Final model: XGBoost on all features with its default settings, trained on all 307,511 training applications.**
+**Adverse action.** Each top feature is mapped to a plain-language reason (for example, low external scores become "Low score from external credit-data sources", and a missing first external score becomes "Limited external credit history on file"). Each is marked *Usable*, *Legal review*, or *Do not cite*. Gender, education, and family status cannot be cited, which is a strong reason to remove them from the model.
 
-- **It had the best cross-validated AUC** of the eight candidates (0.7568), ahead of LightGBM (0.7552) and logistic regression (0.7500), with fold-to-fold variation of only about 0.001.
-- **Its settings were chosen on data it had not seen.** The default settings beat both tuned versions on the 20% holdout.
-- **Performance:** holdout AUC **0.760** (train 0.778, cross-validation 0.757). The holdout agrees with the cross-validation, and the train-to-holdout gap of about 0.019 is a modest amount of overfitting.
-- **Run time:** fitting on all training data takes about 26 seconds, and scoring the 48,744 test applications takes about 0.3 seconds.
-- **It ranks risk usefully.** On the holdout, the default rate rises from 1.2% in the safest decile to 27.6% in the riskiest (3.4 times the average). Flagging the riskiest 20% of applicants catches 52% of all defaults, and the safest half of applicants has a default rate of 2.8%. The predicted probabilities are also close to the actual rates in each decile.
+**Fairness.** At the chosen cutoff, women are approved at 80% and men at 66% (ratio 0.82), and approval ranges from 66% (lower secondary) to 87% (higher education) by education (ratio 0.76, below the 0.80 screening line). Part of this reflects real differences in default rates, but the model uses gender directly. A version without the protected and proxy fields narrows the gaps (ratios 0.90 and 0.82) at a cost of about 0.007 AUC and 1.2% of profit, but does not eliminate them.
 
-**Kaggle score.** Was submitted `submission.csv` and record the public and private scores in the `KAGGLE_PUBLIC_SCORE` and `KAGGLE_PRIVATE_SCORE` as 0.74454 and 0.74509 accordingly.
+## Recommendation and key caveats
 
-## Important caveats
+Use the score as a ranking tool in a shadow run and then a pilot, with flagged applications going to human review. **Remove gender and the other protected or proxy fields before any live use.**
 
-- **The competition model is not a production model.** The best-AUC model uses gender and education, among others. The feature report says gender must not be used as a repayment-risk input. Removing the governed fields costs only about 0.008 AUC (XGBoost 0.7489 versus 0.7568), so for the lender I recommend the version without them, and a fairness check across groups before any use.
-- **Explainability.** Logistic regression on all features is only about 0.007 AUC behind XGBoost and is the easiest model to turn into plain adverse-action reasons.
-- **Application data only.** The supplementary tables are the most likely route to a better score, and `Data_Prep.py` already supports them. The BPS goal of approving more thin-file applicants has not been tested here, and `TARGET` exists only for applications that became loans.
-- **AUC measures ranking only.** Measuring the BPS metrics (expected credit loss, approval rate, 90+ day delinquency) needs approval cutoffs based on the cost of a default and the profit from a good loan. That is the next phase.
+- The savings come from approved loans only (the data contain no declined applicants) and rest on assumed profit and loss rates, so the real gain over the current process is probably smaller than shown.
+- Thin-file applicants were not evaluated separately, and the supplementary tables (bureau, previous loans, payment history) are not used.
+- Only gender and education were checked for fairness; age, family status, region, and combinations still need review with fair-lending counsel.
+- About 4 in 5 flagged applicants would actually have repaid, so a flagged applicant should be reviewed, not automatically declined.
+
+## Reproducing it
+
+Place `Model_Card_Home_Credit.ipynb`, `Data_Prep.py`, `final_model.joblib`, and the folder `Home Credit Data/prepared/` (created by the modeling notebook) in one folder. You need `pandas`, `numpy`, `scikit-learn`, `xgboost`, `shap`, `scipy`, `matplotlib`, and `joblib`. To get the code-free version, run: `jupyter nbconvert --to html --no-input --no-prompt Model_Card_Home_Credit.ipynb`.
